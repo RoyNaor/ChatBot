@@ -2,13 +2,15 @@
   "name": "chatbot",
   "module": "index.ts",
   "scripts": {
-    "dev": "bun run index.ts"
+    "dev": "bun run index.ts",
+    "prepare": "husky"
   },
   "type": "module",
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "husky": "^9.1.7"
   },
   "peerDependencies": {
     "typescript": "^5"
