@@ -9,7 +9,7 @@ type FormData = {
 };
 
 const ChatBot = () => {
-  const conversationId = useRef(crypto.randomUUID);
+  const conversationId = useRef(crypto.randomUUID());
   const { register, handleSubmit, reset, formState } = useForm<FormData>({
     mode: 'onChange',
   });
