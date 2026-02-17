@@ -11,9 +11,10 @@ const ChatBot = () => {
   const conversationId = useRef(crypto.randomUUID());
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  const { register, handleSubmit, reset, formState } = useForm<FormData>({
+  const { register, handleSubmit, reset, formState, watch } = useForm<FormData>({
     mode: 'onChange',
   });
+  const currentMessage = watch('message', '');
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -62,6 +63,7 @@ const ChatBot = () => {
       <ChatInput
         loading={loading}
         isValid={formState.isValid}
+        currentMessage={currentMessage}
         register={register}
         handleSubmit={handleSubmit}
         onSubmit={onSubmit}
