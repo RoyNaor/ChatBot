@@ -18,14 +18,21 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
   const { direction, isRtl } = getMessageMeta(message.content);
 
   return (
-    <div className={clsx('flex items-end gap-2.5', isUser ? 'justify-end' : 'justify-start')}>
+    <div
+      className={clsx(
+        'flex items-end gap-2.5',
+        isUser ? 'justify-end' : 'justify-start'
+      )}
+    >
       {!isUser && (
         <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-indigo-600 text-sm text-white shadow-sm">
           🤖
         </div>
       )}
 
-      <div className={clsx('max-w-[82%] sm:max-w-[76%]', isUser && 'items-end')}>
+      <div
+        className={clsx('max-w-[82%] sm:max-w-[76%]', isUser && 'items-end')}
+      >
         <div
           dir={direction}
           className={clsx(
@@ -33,15 +40,17 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
             isRtl ? 'text-right' : 'text-left',
             isUser
               ? 'rounded-br-md bg-emerald-400 text-emerald-950'
-              : clsx(
-                  'border border-indigo-100 bg-white text-slate-800',
-                  isRtl ? 'rounded-br-md' : 'rounded-bl-md'
-                )
+              : 'rounded-bl-md border border-indigo-100 bg-white text-slate-800'
           )}
         >
           {message.content}
         </div>
-        <p className={clsx('mt-1 px-1 text-[11px] text-slate-400', isUser ? 'text-right' : 'text-left')}>
+        <p
+          className={clsx(
+            'mt-1 px-1 text-[11px] text-slate-400',
+            isUser ? 'text-right' : 'text-left'
+          )}
+        >
           {formatMessageTime(message.timestamp)}
         </p>
       </div>
