@@ -1,15 +1,15 @@
 # chatbot
 
-## Install dependencies
+To install dependencies:
 
 ```bash
 bun install
 ```
 
-## Run client and server together
+To run:
 
 ```bash
-bun run dev
+bun run index.ts
 ```
 
-The monorepo now contains top-level `client/` and `server/` workspaces.
+This project was created using `bun init` in bun v1.3.9. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
