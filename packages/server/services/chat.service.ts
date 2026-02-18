@@ -9,7 +9,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const intentEnum = z.enum(["constraint", "schedule_query", "general"]);
+// --- הגדרות סכימה לאימות (Zod) ---
+const intentEnum = z.enum(["constraint", "schedule_query", "general", "out_of_scope"]);
 const constraintTypeEnum = z.enum(["HARD", "SOFT"]);
 
 const constraintDataSchema = z.object({
@@ -17,32 +18,16 @@ const constraintDataSchema = z.object({
   end_time: z.string().datetime({ offset: true }),
   type: z
     .string()
-    .transform((value) => value.toUpperCase())
+    .transform((val) => val.toUpperCase())
     .pipe(constraintTypeEnum)
     .default("HARD"),
 });
 
 const llmResponseSchema = z.object({
   intent: intentEnum,
-  confidence: z.number().min(0).max(1).optional(),
-  data: constraintDataSchema.optional(),
+  confidence: z.number().min(0).max(1),
+  data: constraintDataSchema.nullable(), // חייב להיות nullable בגלל ה-API
   assistant_reply: z.string().min(1),
-}).superRefine((value, ctx) => {
-  if (value.intent === "constraint" && !value.data) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["data"],
-      message: "data is required when intent is constraint",
-    });
-  }
-
-  if (value.intent !== "constraint" && value.data) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["data"],
-      message: "data must only be present for constraint intent",
-    });
-  }
 });
 
 export type ChatIntent = z.infer<typeof intentEnum>;
@@ -51,81 +36,51 @@ export interface ChatResponse {
   id: string;
   output_text: string;
   intent: ChatIntent;
-  confidence?: number;
-  data?: {
-    start_time: string;
-    end_time: string;
-    type: z.infer<typeof constraintTypeEnum>;
-  };
+  confidence: number;
+  data?: z.infer<typeof constraintDataSchema>;
 }
 
+// --- הפרומפט המלא והמפורט ---
 const systemPrompt = `You are an intent detection and reply assistant for a scheduling chatbot.
 
 CRITICAL OUTPUT RULES:
 1) Output must be valid JSON only.
-2) Do not include markdown, backticks, explanations, or any text outside JSON.
-3) Use exactly this shape:
-{
-  "intent": "constraint" | "schedule_query" | "general",
-  "confidence": number between 0 and 1,
-  "data": {
-    "start_time": "ISO-8601 datetime string with timezone",
-    "end_time": "ISO-8601 datetime string with timezone",
-    "type": "HARD" | "SOFT"
-  },
-  "assistant_reply": "string"
-}
-4) Include "data" only when intent is "constraint".
-5) For "constraint", choose data.type:
-   - HARD = strict cannot/unavailable constraints.
-   - SOFT = preference/avoid-if-possible constraints.
+2) Use exactly the provided JSON schema.
+3) Include "data" ONLY when intent is "constraint". If intent is anything else, "data" MUST be null.
+4) For "constraint", choose data.type:
+   - HARD = strict cannot/unavailable (e.g., "אני לא יכול", "אסור לי").
+   - SOFT = preference/avoid-if-possible (e.g., "עדיף שלא", "מעדיף להימנע").
    - If unclear, default to HARD.
-6) For "schedule_query", assistant_reply should indicate checking schedule.
-7) For "general", keep normal assistant behavior and provide a helpful reply.
+5) For "schedule_query", assistant_reply should indicate you are checking the schedule.
+6) For "general", be friendly, answer greetings (Hi/How are you), and keep it short.
 
 HEBREW + NLP RULES:
-- Understand fluent Hebrew, mixed Hebrew-English, slang, and natural language phrasing.
-- Correctly interpret Hebrew day/time expressions (e.g., "ביום שלישי בערב", "מחר בבוקר", "לא יכול בין 14:00 ל-16:00").
+- Understand fluent Hebrew, mixed Hebrew-English, and slang.
+- Correctly interpret Hebrew day/time expressions:
+  * "יום שלישי בערב" -> Tuesday 18:00-22:00
+  * "שישי בבוקר" -> Friday 08:00-12:00
+  * "מחר" -> Calculate based on current date.
 - Preserve the user's language in assistant_reply; if user writes Hebrew, reply in Hebrew.
-- For extracted datetime fields, always return ISO-8601 with timezone.
+- For extracted datetime fields, always return ISO-8601 with timezone (+02:00 or +03:00 depending on season).
 
-INTENT EXAMPLES (for behavior guidance only):
-1) User: "אני לא יכול לעבוד ביום שלישי בערב"
-   Output: {"intent":"constraint","confidence":0.92,"data":{"start_time":"2026-03-03T18:00:00+02:00","end_time":"2026-03-03T22:00:00+02:00","type":"HARD"},"assistant_reply":"הבנתי, אתה לא זמין בשלישי בערב."}
-2) User: "עדיף שלא אעבוד בשישי בבוקר"
-   Output: {"intent":"constraint","confidence":0.88,"data":{"start_time":"2026-03-06T08:00:00+02:00","end_time":"2026-03-06T12:00:00+02:00","type":"SOFT"},"assistant_reply":"קיבלתי, זו העדפה להימנע משישי בבוקר."}
-3) User: "Can you check my schedule for tomorrow afternoon?"
-   Output: {"intent":"schedule_query","confidence":0.95,"assistant_reply":"Let me check your schedule."}
-4) User: "מה נשמע?"
-   Output: {"intent":"general","confidence":0.97,"assistant_reply":"הכול טוב! איך אפשר לעזור?"}
+CURRENT DATE CONTEXT:
+The current date is Wednesday, Feb 18, 2026.
 `;
-
-function safeParseLlmJson(rawText: string) {
-  try {
-    const parsedJson = JSON.parse(rawText);
-    return llmResponseSchema.safeParse(parsedJson);
-  } catch {
-    return { success: false } as const;
-  }
-}
 
 export const ChatService = {
   async sendMessage(message: string, conversationId: string): Promise<ChatResponse> {
+    
+    // שליפת היסטוריה
+    const lastResponseId = ConversationRepository.getLastResponseId(conversationId);
+
     const response = await openai.responses.create({
       model: "gpt-4o-mini",
-      previous_response_id: ConversationRepository.getLastResponseId(conversationId),
-      temperature: 0.2,
-      max_output_tokens: 320,
+      previous_response_id: lastResponseId,
       input: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: message,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: message },
       ],
+      temperature: 0.3,
       text: {
         format: {
           type: "json_schema",
@@ -133,57 +88,57 @@ export const ChatService = {
           strict: true,
           schema: {
             type: "object",
-            additionalProperties: false,
             properties: {
-              intent: {
-                type: "string",
-                enum: ["constraint", "schedule_query", "general", "out_of_scope"],
-              },
-              confidence: {
-                type: "number",
-                minimum: 0,
-                maximum: 1,
-              },
-              assistant_reply: {
-                type: "string",
-              },
+              intent: { type: "string", enum: ["constraint", "schedule_query", "general", "out_of_scope"] },
+              confidence: { type: "number" },
+              assistant_reply: { type: "string" },
               data: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  start_time: { type: "string" },
-                  end_time: { type: "string" },
-                  type: { type: "string", enum: ["HARD", "SOFT"] },
-                },
-                required: ["start_time", "end_time", "type"],
+                anyOf: [
+                  {
+                    type: "object",
+                    properties: {
+                      start_time: { type: "string" },
+                      end_time: { type: "string" },
+                      type: { type: "string", enum: ["HARD", "SOFT"] },
+                    },
+                    required: ["start_time", "end_time", "type"],
+                    additionalProperties: false,
+                  },
+                  { type: "null" },
+                ],
               },
             },
-            required: ["intent", "confidence", "assistant_reply"],
+            required: ["intent", "confidence", "assistant_reply", "data"],
+            additionalProperties: false,
           },
         },
       },
     });
 
+    // שמירת ה-ID החדש
     ConversationRepository.setLastResponseId(conversationId, response.id);
 
-    const parsed = safeParseLlmJson(response.output_text);
+    const rawOutput = response.output_text || "";
+    
+    try {
+      const parsedJson = JSON.parse(rawOutput);
+      const validated = llmResponseSchema.parse(parsedJson);
 
-    if (!parsed.success) {
       return {
         id: response.id,
-        output_text: response.output_text,
+        output_text: validated.assistant_reply,
+        intent: validated.intent,
+        confidence: validated.confidence,
+        data: validated.data || undefined, // הופך null ל-undefined בשביל ה-Interface
+      };
+    } catch (error) {
+      console.error("Internal Logic Error:", error);
+      return {
+        id: response.id,
+        output_text: "אופס, משהו השתבש לי בחישוב. אפשר לנסות שוב?",
         intent: "general",
+        confidence: 0,
       };
     }
-
-    const parsedValue = parsed.data;
-
-    return {
-      id: response.id,
-      output_text: parsedValue.assistant_reply,
-      intent: parsedValue.intent,
-      confidence: parsedValue.confidence,
-      data: parsedValue.intent === "constraint" ? parsedValue.data : undefined,
-    };
   },
 };
