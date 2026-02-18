@@ -132,38 +132,33 @@ export const ChatService = {
           name: "chat_intent_response",
           strict: true,
           schema: {
-            oneOf: [
-              {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              intent: {
+                type: "string",
+                enum: ["constraint", "schedule_query", "general", "out_of_scope"],
+              },
+              confidence: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+              },
+              assistant_reply: {
+                type: "string",
+              },
+              data: {
                 type: "object",
                 additionalProperties: false,
                 properties: {
-                  intent: { type: "string", const: "constraint" },
-                  confidence: { type: "number", minimum: 0, maximum: 1 },
-                  data: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      start_time: { type: "string" },
-                      end_time: { type: "string" },
-                      type: { type: "string", enum: ["HARD", "SOFT"] },
-                    },
-                    required: ["start_time", "end_time", "type"],
-                  },
-                  assistant_reply: { type: "string" },
+                  start_time: { type: "string" },
+                  end_time: { type: "string" },
+                  type: { type: "string", enum: ["HARD", "SOFT"] },
                 },
-                required: ["intent", "confidence", "data", "assistant_reply"],
+                required: ["start_time", "end_time", "type"],
               },
-              {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  intent: { type: "string", enum: ["schedule_query", "general"] },
-                  confidence: { type: "number", minimum: 0, maximum: 1 },
-                  assistant_reply: { type: "string" },
-                },
-                required: ["intent", "confidence", "assistant_reply"],
-              },
-            ],
+            },
+            required: ["intent", "confidence", "assistant_reply"],
           },
         },
       },
